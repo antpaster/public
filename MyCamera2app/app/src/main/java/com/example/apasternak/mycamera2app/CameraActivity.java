@@ -50,6 +50,7 @@ import java.util.Arrays;
 import java.util.List;
 
 import static android.app.PendingIntent.getActivity;
+import static android.graphics.ImageFormat.JPEG;
 
 @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
 public class CameraActivity extends AppCompatActivity {
@@ -97,7 +98,7 @@ public class CameraActivity extends AppCompatActivity {
 
             @Override
             public void onClick(View v) {
-                Toast.makeText(getApplicationContext(), "Pressed!", Toast.LENGTH_SHORT).show();
+                takePicture();
             }
         });
     }
@@ -193,7 +194,7 @@ public class CameraActivity extends AppCompatActivity {
             if (characteristics != null) {
                 jpegSizes
                     = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP).
-                    getOutputSizes(ImageFormat.JPEG);
+                    getOutputSizes(JPEG);
             }
 
             int width = 640;
@@ -203,7 +204,7 @@ public class CameraActivity extends AppCompatActivity {
                 height = jpegSizes[0].getHeight();
             }
 
-            ImageReader reader = ImageReader.newInstance(width, height, ImageFormat.JPEG, 1);
+            ImageReader reader = ImageReader.newInstance(width, height, JPEG, 1);
 
             List<Surface> outputSurfaces = new ArrayList<>(2);
             outputSurfaces.add(reader.getSurface());
@@ -299,6 +300,9 @@ public class CameraActivity extends AppCompatActivity {
             SurfaceTexture texture = mTextureView.getSurfaceTexture();
             assert texture != null;
 
+            // Getting an instance of the ImageReader. Here was a NullPointerException
+            mImageReader = ImageReader.newInstance(640, 480, JPEG, 1);
+
             // We configure the size of default buffer to be the size of camera preview we want.
             texture.setDefaultBufferSize(mImageReader.getWidth(), mImageReader.getHeight());
 
@@ -307,7 +311,7 @@ public class CameraActivity extends AppCompatActivity {
 
             // We set up a CaptureRequest.Builder with the output Surface.
             mPreviewRequestBuilder
-                    = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+                = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
             mPreviewRequestBuilder.addTarget(surface);
 
             // Here, we create a CameraCaptureSession for camera preview.

@@ -32,6 +32,7 @@ import retrofit2.Response;
 import retrofit2.Retrofit;
 import retrofit2.converter.gson.GsonConverterFactory;
 
+
 public class VideoToServerActivity extends AppCompatActivity implements
     EasyPermissions.PermissionCallbacks {
 
@@ -84,6 +85,94 @@ public class VideoToServerActivity extends AppCompatActivity implements
                     getString(R.string.read_file), READ_REQUEST_CODE,
                     Manifest.permission.READ_EXTERNAL_STORAGE);
             }
+        }
+    }
+
+    private String getFileDestinationPath() {
+        String generatedFilename = String.valueOf(System.currentTimeMillis());
+        String filePathEnvironment
+            = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).
+            getAbsolutePath();
+
+        File directoryFolder = new File(filePathEnvironment + "/video/");
+        if (!directoryFolder.exists()) {
+            directoryFolder.mkdir();
+        }
+
+        Log.d(TAG, "Full path " + filePathEnvironment + "/video/" + generatedFilename + ".mp4");
+        return filePathEnvironment + "/video/" + generatedFilename + ".mp4";
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+        @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+
+        EasyPermissions.onRequestPermissionsResult(requestCode, permissions, grantResults,
+            VideoToServerActivity.this);
+    }
+
+    @Override
+    public void onPermissionsGranted(int requestCode, List<String> perms) {
+        if (uri != null) {
+            if (EasyPermissions.hasPermissions(VideoToServerActivity.this,
+                android.Manifest.permission.READ_EXTERNAL_STORAGE)) {
+                displayRecordedVideo.setVideoURI(uri);
+                displayRecordedVideo.start();
+
+                pathToStoredVideo = getRealPathFromURIPath(uri, VideoToServerActivity.this);
+                Log.d(TAG, "Recorded Video Path " + pathToStoredVideo);
+
+                /// Store the video to your server
+                uploadVideoToServer(pathToStoredVideo);
+
+            }
+        }
+    }
+
+    @Override
+    public void onPermissionsDenied(int requestCode, List<String> perms) {
+        Log.d(TAG, "User has denied requested permission");
+    }
+
+    private void uploadVideoToServer(String pathToVideoFile) {
+        File videoFile = new File(pathToVideoFile);
+        RequestBody videoBody = RequestBody.create(MediaType.parse("video/*"), videoFile);
+        MultipartBody.Part vFile = MultipartBody.Part.createFormData("video", videoFile.getName(),
+            videoBody);
+
+        Retrofit retrofit = new Retrofit.Builder()
+                .baseUrl(SERVER_PATH)
+                .addConverterFactory(GsonConverterFactory.create())
+                .build();
+        VideoInterface vInterface = retrofit.create(VideoInterface.class);
+        Call<ResultObject> serverCom = vInterface.uploadVideoToServer(vFile);
+        serverCom.enqueue(new Callback<ResultObject>() {
+            @Override
+            public void onResponse(Call<ResultObject> call, Response<ResultObject> response) {
+                ResultObject result = response.body();
+                if (!TextUtils.isEmpty(result.getSuccess())) {
+                    Toast.makeText(getApplicationContext(), "Result " + result.getSuccess(),
+                        Toast.LENGTH_LONG).show();
+                    Log.d(TAG, "Result " + result.getSuccess());
+                }
+            }
+
+            @Override
+            public void onFailure(Call<ResultObject> call, Throwable t) {
+                Log.d(TAG, "Error message " + t.getMessage());
+            }
+        });
+    }
+
+    private String getRealPathFromURIPath(Uri contentURI, Activity activity) {
+        Cursor cursor = activity.getContentResolver().query(contentURI, null, null, null, null);
+        if (cursor == null) {
+            return contentURI.getPath();
+        } else {
+            cursor.moveToFirst();
+            int idx = cursor.getColumnIndex(MediaStore.Images.ImageColumns.DATA);
+            return cursor.getString(idx);
         }
     }
 }

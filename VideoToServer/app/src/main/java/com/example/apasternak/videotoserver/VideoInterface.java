@@ -1,4 +1,4 @@
-/**
+package com.example.apasternak.videotoserver; /**
  * Created by apasternak on 25.10.17.
  */
 

@@ -4,6 +4,8 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
 import android.database.Cursor;
+import android.media.MediaCodec;
+import android.media.MediaFormat;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
@@ -12,15 +14,14 @@ import android.support.annotation.NonNull;
 import android.support.v7.app.AppCompatActivity;
 import android.text.TextUtils;
 import android.util.Log;
+import android.view.Surface;
 import android.view.View;
 import android.widget.Button;
 import android.widget.Toast;
 import android.widget.VideoView;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.List;
 import okhttp3.MediaType;
 import okhttp3.MultipartBody;
@@ -40,16 +41,16 @@ public class VideoToServerActivity extends AppCompatActivity implements
     private static final int REQUEST_VIDEO_CAPTURE = 300;
     private static final int READ_REQUEST_CODE = 200;
     private static final String SERVER_PATH = "";
-    private Uri uri;
-    private String pathToStoredVideo;
-    private VideoView displayRecordedVideo;
+    private Uri mUri;
+    private String mPathToStoredVideo;
+    private VideoView mDisplayRecordedVideo;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_video_to_server);
 
-        displayRecordedVideo = (VideoView) findViewById(R.id.video_display);
+        mDisplayRecordedVideo = (VideoView) findViewById(R.id.video_display);
 
         Button captureVideoButton = (Button) findViewById(R.id.capture_video);
 
@@ -68,18 +69,18 @@ public class VideoToServerActivity extends AppCompatActivity implements
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (resultCode == Activity.RESULT_OK && requestCode == REQUEST_VIDEO_CAPTURE) {
-            uri = data.getData();
+            mUri = data.getData();
             
             if (EasyPermissions.hasPermissions(VideoToServerActivity.this,
                 android.Manifest.permission.READ_EXTERNAL_STORAGE)) {
-                displayRecordedVideo.setVideoURI(uri);
-                displayRecordedVideo.start();
+                mDisplayRecordedVideo.setVideoURI(mUri);
+                mDisplayRecordedVideo.start();
 
-                pathToStoredVideo = getRealPathFromURIPath(uri, VideoToServerActivity.this);
-                Log.d(TAG, "Recorded Video Path " + pathToStoredVideo);
+                mPathToStoredVideo = getRealPathFromURIPath(mUri, VideoToServerActivity.this);
+                Log.d(TAG, "Recorded Video Path " + mPathToStoredVideo);
 
                 /// Store the video to your server
-                uploadVideoToServer(pathToStoredVideo);
+                uploadVideoToServer(mPathToStoredVideo);
             } else {
                 EasyPermissions.requestPermissions(VideoToServerActivity.this,
                     getString(R.string.read_file), READ_REQUEST_CODE,
@@ -114,17 +115,17 @@ public class VideoToServerActivity extends AppCompatActivity implements
 
     @Override
     public void onPermissionsGranted(int requestCode, List<String> perms) {
-        if (uri != null) {
+        if (mUri != null) {
             if (EasyPermissions.hasPermissions(VideoToServerActivity.this,
                 android.Manifest.permission.READ_EXTERNAL_STORAGE)) {
-                displayRecordedVideo.setVideoURI(uri);
-                displayRecordedVideo.start();
+                mDisplayRecordedVideo.setVideoURI(mUri);
+                mDisplayRecordedVideo.start();
 
-                pathToStoredVideo = getRealPathFromURIPath(uri, VideoToServerActivity.this);
-                Log.d(TAG, "Recorded Video Path " + pathToStoredVideo);
+                mPathToStoredVideo = getRealPathFromURIPath(mUri, VideoToServerActivity.this);
+                Log.d(TAG, "Recorded Video Path " + mPathToStoredVideo);
 
                 /// Store the video to your server
-                uploadVideoToServer(pathToStoredVideo);
+                uploadVideoToServer(mPathToStoredVideo);
 
             }
         }
@@ -173,6 +174,60 @@ public class VideoToServerActivity extends AppCompatActivity implements
             cursor.moveToFirst();
             int idx = cursor.getColumnIndex(MediaStore.Images.ImageColumns.DATA);
             return cursor.getString(idx);
+        }
+    }
+
+    /** Dealing with MediaCodec *******************************************************************/
+
+    private MediaCodec mDecoder;
+    private boolean mConfigured;
+    private long mTimeoutUs = 10000l;
+
+    /**! Encoder configuring
+     * @param[in] surface
+     * @param[in] width
+     * @param[in] height
+     * @param[in] csd0 */
+    private synchronized void configure(Surface surface, int width, int height, ByteBuffer csd0) {
+        if (mConfigured) { // просто флаг, чтобы знать, что декодер готов
+            throw new IllegalStateException();
+        }
+        // создаем видео формат
+        MediaFormat format = MediaFormat.createVideoFormat("video/avc", width, height);
+        // передаем наш csd-0
+        format.setByteBuffer("csd-0", csd0);
+
+        // создаем декодер
+        try {
+            mDecoder = MediaCodec.createDecoderByType("video/avc");
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        // конфигурируем декодер
+        mDecoder.configure(format, surface, null, 0);
+        mDecoder.start();
+        mConfigured = true;
+    }
+
+    /**! Decoding dummy sample
+     * @param[in] data
+     * @param[in] offset
+     * @param[in] size
+     * @param[in] presentationTimeUs
+     * @param[in] flags */
+    void decodeSample(byte[] data, int offset, int size, long presentationTimeUs, int flags) {
+        if (mConfigured) {
+            // вызов блокирующий
+
+            int index = mDecoder.dequeueInputBuffer(mTimeoutUs);
+            if (index >= 0) {
+                ByteBuffer buffer = mDecoder.getInputBuffers()[index];
+                buffer.clear(); // обязательно сбросить позицию и размер буфера
+                buffer.put(data, offset, size);
+                // сообщаем системе о доступности буфера данных
+                mDecoder.queueInputBuffer(index, 0, size, presentationTimeUs, flags);
+            }
         }
     }
 }
